@@ -36,6 +36,10 @@
   section { display: none; }
   section.on { display: block; }
   .muted { opacity: .65; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ccc;
+             border-top-color: #000; border-radius: 50%; animation: c-spin .6s linear infinite;
+             vertical-align: middle; margin-left: 6px; }
+  @keyframes c-spin { to { transform: rotate(360deg); } }
 </style>
 <header><span class="dot" id="dot">●</span><b>omniroute</b></header>
 <nav id="tabs"></nav>
@@ -436,51 +440,83 @@ document.getElementById('c-in').onkeydown = e => {
 document.getElementById('c-clear').onclick = () => {
   HIST = []; document.getElementById('c-out').textContent = 'Say hi ↓'; };
 document.getElementById('c-send').onclick = async () => {
+  const btn = document.getElementById('c-send');
+  if (btn.disabled) return;
   const inp = document.getElementById('c-in');
   const text = inp.value.trim();
   if (!text) return;
   const model = document.getElementById('c-model').value;
   HIST.push({role: 'user', content: text});
   inp.value = '';
+  btn.disabled = true;
+  inp.disabled = true;
   const box = document.getElementById('c-out');
-  box.textContent += '\n\nYOU: ' + text + '\nAI: ';
-  const r = await fetch('/v1/chat/completions', {method: 'POST',
-    headers: {'Content-Type': 'application/json', ...(K ? {Authorization: 'Bearer ' + K} : {})},
-    body: JSON.stringify({model, messages: HIST, stream: true})});
-  if (r.status === 401) {
-    try { await keyOnce(); } catch (e) { return; }
-    HIST.pop();
-    document.getElementById('c-send').onclick();
-    return;
-  }
-  if (!r.ok) {
-    let msg = 'error ' + r.status;
-    try { msg = (await r.json()).error.message || msg; } catch (e) {}
-    box.textContent += '⚠ ' + msg;
-    HIST.pop();
-    return;
-  }
-  const rd = r.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '', reply = '';
-  for (;;) {
-    const part = await rd.read();
-    if (part.done) break;
-    buf += dec.decode(part.value, {stream: true});
-    let i;
-    while ((i = buf.indexOf('\n\n')) >= 0) {
-      const ev = buf.slice(0, i);
-      buf = buf.slice(i + 2);
-      const line = ev.split('\n').find(l => l.startsWith('data:'));
-      if (!line) continue;
-      const d = line.slice(5).trim();
-      if (d === '[DONE]') continue;
-      try { const c = JSON.parse(d).choices[0].delta.content || ''; reply += c; box.textContent += c; }
-      catch (e) {}
-    }
-  }
-  HIST.push({role: 'assistant', content: reply});
+  box.appendChild(document.createTextNode('\n\nYOU: ' + text + '\nAI: '));
+  const spin = document.createElement('span');
+  spin.className = 'spinner';
+  box.appendChild(spin);
   box.scrollTop = box.scrollHeight;
+  const rmSpin = () => { if (spin.parentNode) spin.remove(); };
+  try {
+    const r = await fetch('/v1/chat/completions', {method: 'POST',
+      headers: {'Content-Type': 'application/json', ...(K ? {Authorization: 'Bearer ' + K} : {})},
+      body: JSON.stringify({model, messages: HIST, stream: true})});
+    if (r.status === 401) {
+      rmSpin();
+      btn.disabled = false;
+      inp.disabled = false;
+      try { await keyOnce(); } catch (e) { return; }
+      HIST.pop();
+      inp.value = text;
+      document.getElementById('c-send').onclick();
+      return;
+    }
+    if (!r.ok) {
+      rmSpin();
+      let msg = 'error ' + r.status;
+      try { msg = (await r.json()).error.message || msg; } catch (e) {}
+      box.appendChild(document.createTextNode('⚠ ' + msg));
+      HIST.pop();
+      return;
+    }
+    const rd = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', reply = '';
+    for (;;) {
+      const part = await rd.read();
+      if (part.done) break;
+      buf += dec.decode(part.value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const ev = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        const line = ev.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        const d = line.slice(5).trim();
+        if (d === '[DONE]') continue;
+        try {
+          const c = JSON.parse(d).choices[0].delta.content || '';
+          if (c) {
+            rmSpin();
+            reply += c;
+            box.appendChild(document.createTextNode(c));
+            box.scrollTop = box.scrollHeight;
+          }
+        } catch (e) {}
+      }
+    }
+    HIST.push({role: 'assistant', content: reply});
+    box.scrollTop = box.scrollHeight;
+  } catch (err) {
+    rmSpin();
+    box.appendChild(document.createTextNode('⚠ ' + (err.message || 'request failed')));
+    HIST.pop();
+  } finally {
+    rmSpin();
+    btn.disabled = false;
+    inp.disabled = false;
+    inp.focus();
+  }
 };
 async function loadLogs() {
   const {logs} = await api('GET', '/admin/logs?limit=100');

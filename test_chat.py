@@ -42,8 +42,13 @@ class T(unittest.TestCase):
         return r.status, json.loads(r.read())
 
     def test_no_targets_503(self):
-        code, body = self.post({"model": "x", "messages": []})
-        self.assertIn(code, (503, 502))  # empty keys.toml in repo
+        orig = store.load_targets
+        store.load_targets = lambda *a: []
+        try:
+            code, body = self.post({"model": "x", "messages": []})
+            self.assertIn(code, (503, 502))
+        finally:
+            store.load_targets = orig
 
     def test_passthrough(self):
         orig = store.load_targets

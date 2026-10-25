@@ -193,7 +193,12 @@ def valid_chat(body):
         if not ch:
             return False
         msg = ch[0].get("message", {})
-        return isinstance(msg, dict) and (isinstance(msg.get("content"), (str, list)) or isinstance(msg.get("tool_calls"), list))
+        return isinstance(msg, dict) and (
+            isinstance(msg.get("content"), (str, list))
+            or isinstance(msg.get("tool_calls"), list)
+            or isinstance(msg.get("reasoning"), str)
+            or isinstance(msg.get("reasoning_content"), str)
+        )
     except (ValueError, AttributeError, IndexError, TypeError):
         return False
 
